@@ -32,6 +32,22 @@ func gitDirs(root string) (map[string]string, error) {
 	return dirs, nil
 }
 
+// tmuxSessionNames returns active tmux session names, or nil if tmux is unavailable.
+func tmuxSessionNames() map[string]struct{} {
+	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]struct{})
+	for line := range strings.Lines(string(out)) {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			names[line] = struct{}{}
+		}
+	}
+	return names
+}
+
 // zoxideScores returns a map of absolute path → frecency score from zoxide.
 // Returns an empty map if zoxide is unavailable or fails.
 func zoxideScores() map[string]float64 {
@@ -60,6 +76,7 @@ func zoxideScores() map[string]float64 {
 }
 
 func main() {
+	all := flag.Bool("all", false, "include repos that already have a tmux session with the same name")
 	flag.Parse()
 
 	root := os.Getenv("HOME") + "/Documents/repos"
@@ -81,6 +98,7 @@ func main() {
 	}
 
 	scores := zoxideScores()
+	active := tmuxSessionNames()
 
 	type repo struct {
 		name  string
@@ -89,6 +107,11 @@ func main() {
 	}
 	repos := make([]repo, 0, len(dirs))
 	for name, path := range dirs {
+		if !*all && active != nil {
+			if _, exists := active[name]; exists {
+				continue
+			}
+		}
 		repos = append(repos, repo{name: name, path: path, score: scores[path]})
 	}
 	sort.Slice(repos, func(i, j int) bool {
