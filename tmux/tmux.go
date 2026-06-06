@@ -34,6 +34,14 @@ func (t Tmux) SessionExists(sessionName string) bool {
 	return exec.Command("tmux", "has-session", "-t", sessionName).Run() == nil
 }
 
+func (t Tmux) CapturePane(sessionName string) (string, error) {
+	out, err := exec.Command("tmux", "capture-pane", "-t", sessionName, "-p").Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func (t Tmux) Switch(sessionName, sessionPath string) error {
 	inTmux := os.Getenv("TMUX") != ""
 	if t.SessionExists(sessionName) {

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 
 	"github.com/ReidMason/tmux-sessions/gitdirs"
@@ -17,6 +18,7 @@ type Config struct {
 
 type TmuxHandler interface {
 	GetSessions() map[string]struct{}
+	CapturePane(sessionName string) (string, error)
 	Switch(sessionName, sessionPath string) error
 }
 
@@ -68,6 +70,54 @@ func sortByScoreThenName(items []listItem) {
 		}
 		return items[i].name < items[j].name
 	})
+}
+
+func listDirectory(path string) (string, error) {
+	if _, err := exec.LookPath("eza"); err == nil {
+		out, err := exec.Command("eza", "--all", "--git", "--icons", "--color=always", path).CombinedOutput()
+		return string(out), err
+	}
+	out, err := exec.Command("ls", "-la", path).CombinedOutput()
+	return string(out), err
+}
+
+func handlePreviewCommand(name string, config Config, tmuxHandler TmuxHandler) {
+	if name == "" {
+		fmt.Fprintln(os.Stderr, "please provide a session or directory name")
+		os.Exit(1)
+	}
+
+	tmuxSessions := tmuxHandler.GetSessions()
+	if tmuxSessions != nil {
+		if _, ok := tmuxSessions[name]; ok {
+			out, err := tmuxHandler.CapturePane(name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error capturing pane: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Print(out)
+			return
+		}
+	}
+
+	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	path, ok := dirs[name]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "not found: %s\n", name)
+		os.Exit(1)
+	}
+
+	out, err := listDirectory(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error listing directory: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(out)
 }
 
 func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
@@ -130,5 +180,8 @@ func main() {
 	case "connect":
 		tmuxHandler := tmux.New()
 		handleConnectCommand(flag.Arg(1), config, tmuxHandler)
+	case "preview":
+		tmuxHandler := tmux.New()
+		handlePreviewCommand(flag.Arg(1), config, tmuxHandler)
 	}
 }
