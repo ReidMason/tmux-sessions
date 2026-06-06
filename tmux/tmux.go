@@ -38,13 +38,11 @@ func (t Tmux) Switch(sessionName, sessionPath string) error {
 	inTmux := os.Getenv("TMUX") != ""
 	if t.SessionExists(sessionName) {
 		if inTmux {
-			return exec.Command("tmux", "switch-client", "-t", sessionName).Run()
+			switchToExistingSession(sessionName)
+			return nil
 		}
-		cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		attachToExistingSession(sessionName)
+		return nil
 	}
 
 	if sessionPath == "" {
@@ -52,15 +50,40 @@ func (t Tmux) Switch(sessionName, sessionPath string) error {
 	}
 
 	if inTmux {
-		if err := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", sessionPath).Run(); err != nil {
-			return err
-		}
-		return exec.Command("tmux", "switch-client", "-t", sessionName).Run()
+		return createAndSwitchToNewSession(sessionName, sessionPath)
 	}
 
+	return createNewSession(sessionName, sessionPath)
+}
+
+func createNewSession(sessionName, sessionPath string) error {
 	cmd := exec.Command("tmux", "new-session", "-s", sessionName, "-c", sessionPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func createNewBackgroundSession(sessionName, sessionPath string) error {
+	return exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", sessionPath).Run()
+}
+
+func createAndSwitchToNewSession(sessionName, sessionPath string) error {
+	if err := createNewBackgroundSession(sessionName, sessionPath); err != nil {
+		return err
+	}
+
+	return switchToExistingSession(sessionName)
+}
+
+func switchToExistingSession(sessionName string) error {
+	return exec.Command("tmux", "switch-client", "-t", sessionName).Run()
+}
+
+func attachToExistingSession(sessionName string) {
+	cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
 }
