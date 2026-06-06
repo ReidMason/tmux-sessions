@@ -1,19 +1,15 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/ReidMason/tmux-sessions/tmux"
+	"github.com/ReidMason/tmux-sessions/zoxide"
 )
 
 type readDirFunc func(name string) ([]fs.DirEntry, error)
@@ -40,33 +36,6 @@ func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]
 	return dirs, nil
 }
 
-// zoxideScores returns a map of absolute path → frecency score from zoxide.
-// Returns an empty map if zoxide is unavailable or fails.
-func zoxideScores() map[string]float64 {
-	out, err := exec.Command("zoxide", "query", "--list", "--score").Output()
-	scores := make(map[string]float64)
-	if err != nil {
-		return scores
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-		score, err := strconv.ParseFloat(parts[0], 64)
-		if err != nil {
-			continue
-		}
-		scores[parts[1]] = score
-	}
-	return scores
-}
-
 type Config struct {
 	projectDirectories []string
 }
@@ -76,7 +45,16 @@ type TmuxHandler interface {
 	Switch(sessionName, sessionPath string) error
 }
 
-func handleConnectCommand(name string, tmuxSessions map[string]struct{}, config Config, tmuxHandler *tmux.Tmux) {
+type ZoxideHandler interface {
+	GetScores() map[string]float64
+}
+
+func handleConnectCommand(name string, config Config, tmuxHandler TmuxHandler) {
+	if name == "" {
+		fmt.Println("Please provide a session name")
+	}
+
+	tmuxSessions := tmuxHandler.GetSessions()
 	if _, ok := tmuxSessions[name]; ok {
 		tmuxHandler.Switch(name, "")
 		return
@@ -94,37 +72,22 @@ func handleConnectCommand(name string, tmuxSessions map[string]struct{}, config 
 	}
 }
 
-func main() {
-	config := Config{
-		projectDirectories: []string{os.Getenv("HOME") + "/Documents/repos"},
-	}
+type repo struct {
+	name   string
+	path   string
+	score  float64
+	active bool
+}
 
-	flag.Parse()
-
-	tmuxHandler := tmux.New()
-
-	tmuxSessions := tmuxHandler.GetSessions()
-
-	if flag.Arg(0) == "connect" && flag.Arg(1) != "" {
-		name := flag.Arg(1)
-		handleConnectCommand(name, tmuxSessions, config, tmuxHandler)
-		return
-	}
-
-	scores := zoxideScores()
-
-	type repo struct {
-		name   string
-		path   string
-		score  float64
-		active bool
-	}
-
+func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
 	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		os.Exit(1)
 	}
+
+	scores := zoxideHandler.GetScores()
+	tmuxSessions := tmuxHandler.GetSessions()
 
 	repos := make([]repo, 0, len(dirs))
 	for name, path := range dirs {
@@ -136,6 +99,7 @@ func main() {
 			active: tmuxSessions != nil && isActive,
 		})
 	}
+
 	sort.Slice(repos, func(i, j int) bool {
 		if repos[i].active != repos[j].active {
 			return repos[i].active
@@ -148,5 +112,24 @@ func main() {
 
 	for _, r := range repos {
 		fmt.Println(" " + r.name)
+	}
+}
+
+func main() {
+	config := Config{
+		projectDirectories: []string{os.Getenv("HOME") + "/Documents/repos"},
+	}
+
+	flag.Parse()
+
+	command := flag.Arg(0)
+	switch command {
+	case "list":
+		tmuxHandler := tmux.New()
+		zoxideHandler := zoxide.New()
+		handleSessionListCommand(config, tmuxHandler, zoxideHandler)
+	case "connect":
+		tmuxHandler := tmux.New()
+		handleConnectCommand(flag.Arg(1), config, tmuxHandler)
 	}
 }
