@@ -3,37 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 
+	"github.com/ReidMason/tmux-sessions/gitdirs"
 	"github.com/ReidMason/tmux-sessions/tmux"
 	"github.com/ReidMason/tmux-sessions/zoxide"
 )
-
-type readDirFunc func(name string) ([]fs.DirEntry, error)
-type statDirFunc func(name string) (os.FileInfo, error)
-
-func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]string, error) {
-	entries, err := readDir(root)
-	if err != nil {
-		return nil, err
-	}
-
-	dirs := make(map[string]string)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(root, entry.Name())
-		if _, err := statDir(filepath.Join(path, ".git")); err == nil {
-			dirs[entry.Name()] = path
-		}
-	}
-
-	return dirs, nil
-}
 
 type Config struct {
 	projectDirectories []string
@@ -59,7 +35,7 @@ func handleConnectCommand(name string, config Config, tmuxHandler TmuxHandler) {
 		return
 	}
 
-	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
+	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		return
@@ -95,7 +71,7 @@ func sortByScoreThenName(items []listItem) {
 }
 
 func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
-	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
+	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		os.Exit(1)
