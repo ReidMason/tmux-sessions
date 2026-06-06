@@ -13,7 +13,6 @@ import (
 )
 
 type readDirFunc func(name string) ([]fs.DirEntry, error)
-
 type statDirFunc func(name string) (os.FileInfo, error)
 
 func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]string, error) {
@@ -111,7 +110,11 @@ func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHand
 	})
 
 	for _, r := range repos {
-		fmt.Println(" " + r.name)
+		prefix := "\uf07b"
+		if r.active {
+			prefix = "\uf489"
+		}
+		fmt.Printf("%s %s\n", prefix, r.name)
 	}
 }
 
@@ -121,6 +124,7 @@ func main() {
 	}
 
 	flag.Parse()
+	// sesh list -t --icons
 
 	command := flag.Arg(0)
 	switch command {
