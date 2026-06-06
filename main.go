@@ -71,11 +71,27 @@ func handleConnectCommand(name string, config Config, tmuxHandler TmuxHandler) {
 	}
 }
 
-type repo struct {
-	name   string
-	path   string
-	score  float64
-	active bool
+type listItem struct {
+	name  string
+	score float64
+	icon  string
+}
+
+func zoxideScoreForSession(name string, dirs map[string]string, scores map[string]float64) float64 {
+	path, ok := dirs[name]
+	if !ok {
+		return 0
+	}
+	return scores[path]
+}
+
+func sortByScoreThenName(items []listItem) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].score != items[j].score {
+			return items[i].score > items[j].score
+		}
+		return items[i].name < items[j].name
+	})
 }
 
 func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
@@ -88,33 +104,36 @@ func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHand
 	scores := zoxideHandler.GetScores()
 	tmuxSessions := tmuxHandler.GetSessions()
 
-	repos := make([]repo, 0, len(dirs))
-	for name, path := range dirs {
-		_, isActive := tmuxSessions[name]
-		repos = append(repos, repo{
-			name:   name,
-			path:   path,
-			score:  scores[path],
-			active: tmuxSessions != nil && isActive,
+	sessions := make([]listItem, 0, len(tmuxSessions))
+	for name := range tmuxSessions {
+		sessions = append(sessions, listItem{
+			name:  name,
+			score: zoxideScoreForSession(name, dirs, scores),
+			icon:  "\uf489",
 		})
 	}
+	sortByScoreThenName(sessions)
 
-	sort.Slice(repos, func(i, j int) bool {
-		if repos[i].active != repos[j].active {
-			return repos[i].active
+	directories := make([]listItem, 0, len(dirs))
+	for name, path := range dirs {
+		if tmuxSessions != nil {
+			if _, hasSession := tmuxSessions[name]; hasSession {
+				continue
+			}
 		}
-		if repos[i].score != repos[j].score {
-			return repos[i].score > repos[j].score
-		}
-		return repos[i].name < repos[j].name
-	})
+		directories = append(directories, listItem{
+			name:  name,
+			score: scores[path],
+			icon:  "\uf07b",
+		})
+	}
+	sortByScoreThenName(directories)
 
-	for _, r := range repos {
-		prefix := "\uf07b"
-		if r.active {
-			prefix = "\uf489"
-		}
-		fmt.Printf("%s %s\n", prefix, r.name)
+	for _, item := range sessions {
+		fmt.Printf("%s %s\n", item.icon, item.name)
+	}
+	for _, item := range directories {
+		fmt.Printf("%s %s\n", item.icon, item.name)
 	}
 }
 
