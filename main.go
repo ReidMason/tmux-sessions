@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/ReidMason/tmux-sessions/tmux"
 )
 
 type readDirFunc func(name string) ([]fs.DirEntry, error)
@@ -36,29 +38,6 @@ func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]
 	}
 
 	return dirs, nil
-}
-
-type tmuxSessionListCommandFunc func() ([]byte, error)
-
-func tmuxSessonListCommand() ([]byte, error) {
-	return exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
-}
-
-func getTmuxSessions(tmuxSessionListCommand tmuxSessionListCommandFunc) map[string]struct{} {
-	out, err := tmuxSessionListCommand()
-	if err != nil {
-		return nil
-	}
-
-	names := make(map[string]struct{})
-	for line := range strings.Lines(string(out)) {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			names[line] = struct{}{}
-		}
-	}
-
-	return names
 }
 
 // zoxideScores returns a map of absolute path → frecency score from zoxide.
@@ -88,26 +67,31 @@ func zoxideScores() map[string]float64 {
 	return scores
 }
 
-func tmuxSwitch(sessionName string) {
-	cmd := exec.Command("tmux", "switch-client", "-t", sessionName)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	cmd.Run()
-}
-
-func tmuxNewSession(sessionName, sessionPath string) {
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", sessionPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	cmd.Run()
-}
-
 type Config struct {
 	projectDirectories []string
+}
+
+type TmuxHandler interface {
+	GetSessions() map[string]struct{}
+	Switch(sessionName, sessionPath string) error
+}
+
+func handleConnectCommand(name string, tmuxSessions map[string]struct{}, config Config, tmuxHandler *tmux.Tmux) {
+	if _, ok := tmuxSessions[name]; ok {
+		tmuxHandler.Switch(name, "")
+		return
+	}
+
+	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
+		return
+	}
+
+	path, ok := dirs[name]
+	if ok {
+		tmuxHandler.Switch(name, path)
+	}
 }
 
 func main() {
@@ -117,27 +101,13 @@ func main() {
 
 	flag.Parse()
 
-	tmuxSessions := getTmuxSessions(tmuxSessonListCommand)
+	tmuxHandler := tmux.New()
 
-	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
-		os.Exit(1)
-	}
+	tmuxSessions := tmuxHandler.GetSessions()
 
 	if flag.Arg(0) == "connect" && flag.Arg(1) != "" {
 		name := flag.Arg(1)
-
-		if _, ok := tmuxSessions[name]; ok {
-			tmuxSwitch(name)
-		}
-
-		path, ok := dirs[name]
-
-		if ok {
-			tmuxNewSession(name, path)
-			tmuxSwitch(name)
-		}
+		handleConnectCommand(name, tmuxSessions, config, tmuxHandler)
 		return
 	}
 
@@ -149,6 +119,13 @@ func main() {
 		score  float64
 		active bool
 	}
+
+	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
+		os.Exit(1)
+	}
+
 	repos := make([]repo, 0, len(dirs))
 	for name, path := range dirs {
 		_, isActive := tmuxSessions[name]
