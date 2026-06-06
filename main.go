@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +14,12 @@ import (
 	"strings"
 )
 
-func gitDirs(root string) (map[string]string, error) {
-	entries, err := os.ReadDir(root)
+type readDirFunc func(name string) ([]fs.DirEntry, error)
+
+type statDirFunc func(name string) (os.FileInfo, error)
+
+func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]string, error) {
+	entries, err := readDir(root)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +30,7 @@ func gitDirs(root string) (map[string]string, error) {
 			continue
 		}
 		path := filepath.Join(root, entry.Name())
-		if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		if _, err := statDir(filepath.Join(path, ".git")); err == nil {
 			dirs[entry.Name()] = path
 		}
 	}
@@ -75,13 +80,19 @@ func zoxideScores() map[string]float64 {
 	return scores
 }
 
+type Config struct {
+	projectDirectories []string
+}
+
 func main() {
+	config := Config{
+		projectDirectories: []string{os.Getenv("HOME") + "/Documents/repos"},
+	}
+
 	all := flag.Bool("all", false, "include repos that already have a tmux session with the same name")
 	flag.Parse()
 
-	root := os.Getenv("HOME") + "/Documents/repos"
-
-	dirs, err := gitDirs(root)
+	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		os.Exit(1)
