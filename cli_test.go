@@ -28,13 +28,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestCLIListFiltersActiveTmuxSessions(t *testing.T) {
+func TestCLIListActiveSessionsFirst(t *testing.T) {
 	env := setupCLIEnv(t, []string{"alpha"})
 
 	out := runCLI(t, env, nil)
-	assertLines(t, out, []string{" beta", " gamma"})
-
-	out = runCLI(t, env, []string{"-all"})
 	assertLines(t, out, []string{" alpha", " beta", " gamma"})
 }
 

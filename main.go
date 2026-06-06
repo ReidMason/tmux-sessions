@@ -34,15 +34,22 @@ func gitDirs(root string, readDir readDirFunc, statDir statDirFunc) (map[string]
 			dirs[entry.Name()] = path
 		}
 	}
+
 	return dirs, nil
 }
 
-// tmuxSessionNames returns active tmux session names, or nil if tmux is unavailable.
-func tmuxSessionNames() map[string]struct{} {
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+type tmuxSessionListCommandFunc func() ([]byte, error)
+
+func tmuxSessonListCommand() ([]byte, error) {
+	return exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+}
+
+func getTmuxSessions(tmuxSessionListCommand tmuxSessionListCommandFunc) map[string]struct{} {
+	out, err := tmuxSessionListCommand()
 	if err != nil {
 		return nil
 	}
+
 	names := make(map[string]struct{})
 	for line := range strings.Lines(string(out)) {
 		line = strings.TrimSpace(line)
@@ -50,6 +57,7 @@ func tmuxSessionNames() map[string]struct{} {
 			names[line] = struct{}{}
 		}
 	}
+
 	return names
 }
 
@@ -80,6 +88,24 @@ func zoxideScores() map[string]float64 {
 	return scores
 }
 
+func tmuxSwitch(sessionName string) {
+	cmd := exec.Command("tmux", "switch-client", "-t", sessionName)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	cmd.Run()
+}
+
+func tmuxNewSession(sessionName, sessionPath string) {
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName, "-c", sessionPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	cmd.Run()
+}
+
 type Config struct {
 	projectDirectories []string
 }
@@ -89,8 +115,9 @@ func main() {
 		projectDirectories: []string{os.Getenv("HOME") + "/Documents/repos"},
 	}
 
-	all := flag.Bool("all", false, "include repos that already have a tmux session with the same name")
 	flag.Parse()
+
+	tmuxSessions := getTmuxSessions(tmuxSessonListCommand)
 
 	dirs, err := gitDirs(config.projectDirectories[0], os.ReadDir, os.Stat)
 	if err != nil {
@@ -98,35 +125,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	if flag.Arg(0) == "open" && flag.Arg(1) != "" {
-		path, ok := dirs[flag.Arg(1)]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "repo not found: %s\n", flag.Arg(1))
-			os.Exit(1)
+	if flag.Arg(0) == "connect" && flag.Arg(1) != "" {
+		name := flag.Arg(1)
+
+		if _, ok := tmuxSessions[name]; ok {
+			tmuxSwitch(name)
 		}
-		fmt.Println(path)
+
+		path, ok := dirs[name]
+
+		if ok {
+			tmuxNewSession(name, path)
+			tmuxSwitch(name)
+		}
 		return
 	}
 
 	scores := zoxideScores()
-	active := tmuxSessionNames()
 
 	type repo struct {
-		name  string
-		path  string
-		score float64
+		name   string
+		path   string
+		score  float64
+		active bool
 	}
 	repos := make([]repo, 0, len(dirs))
 	for name, path := range dirs {
-		if !*all && active != nil {
-			if _, exists := active[name]; exists {
-				continue
-			}
-		}
-		repos = append(repos, repo{name: name, path: path, score: scores[path]})
+		_, isActive := tmuxSessions[name]
+		repos = append(repos, repo{
+			name:   name,
+			path:   path,
+			score:  scores[path],
+			active: tmuxSessions != nil && isActive,
+		})
 	}
 	sort.Slice(repos, func(i, j int) bool {
-		return repos[i].score > repos[j].score
+		if repos[i].active != repos[j].active {
+			return repos[i].active
+		}
+		if repos[i].score != repos[j].score {
+			return repos[i].score > repos[j].score
+		}
+		return repos[i].name < repos[j].name
 	})
 
 	for _, r := range repos {
