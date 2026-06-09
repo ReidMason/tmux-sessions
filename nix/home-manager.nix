@@ -9,6 +9,7 @@ flake:
 let
   cfg = config.programs.tmux-sessions;
   system = pkgs.stdenv.hostPlatform.system;
+  toml = pkgs.formats.toml { };
 in
 {
   options.programs.tmux-sessions = {
@@ -30,7 +31,7 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ cfg.package ];
 
-    xdg.configFile."tmux-sessions/config.toml".text = lib.generators.toToml {
+    xdg.configFile."tmux-sessions/config.toml".source = toml.generate "config.toml" {
       projectDirectories = cfg.projectDirectories;
     };
   };
