@@ -7,14 +7,11 @@ import (
 	"os/exec"
 	"sort"
 
+	"github.com/ReidMason/tmux-sessions/config"
 	"github.com/ReidMason/tmux-sessions/gitdirs"
 	"github.com/ReidMason/tmux-sessions/tmux"
 	"github.com/ReidMason/tmux-sessions/zoxide"
 )
-
-type Config struct {
-	projectDirectories []string
-}
 
 type TmuxHandler interface {
 	GetSessions() map[string]struct{}
@@ -26,7 +23,7 @@ type ZoxideHandler interface {
 	GetScores() map[string]float64
 }
 
-func handleConnectCommand(name string, config Config, tmuxHandler TmuxHandler) {
+func handleConnectCommand(name string, roots []string, tmuxHandler TmuxHandler) {
 	if name == "" {
 		fmt.Println("Please provide a session name")
 	}
@@ -37,7 +34,7 @@ func handleConnectCommand(name string, config Config, tmuxHandler TmuxHandler) {
 		return
 	}
 
-	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
+	dirs, err := gitdirs.ProjectDirs(roots, os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		return
@@ -81,7 +78,7 @@ func listDirectory(path string) (string, error) {
 	return string(out), err
 }
 
-func handlePreviewCommand(name string, config Config, tmuxHandler TmuxHandler) {
+func handlePreviewCommand(name string, roots []string, tmuxHandler TmuxHandler) {
 	if name == "" {
 		fmt.Fprintln(os.Stderr, "please provide a session or directory name")
 		os.Exit(1)
@@ -100,7 +97,7 @@ func handlePreviewCommand(name string, config Config, tmuxHandler TmuxHandler) {
 		}
 	}
 
-	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
+	dirs, err := gitdirs.ProjectDirs(roots, os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		os.Exit(1)
@@ -120,8 +117,8 @@ func handlePreviewCommand(name string, config Config, tmuxHandler TmuxHandler) {
 	fmt.Print(out)
 }
 
-func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
-	dirs, err := gitdirs.ProjectDirs(config.projectDirectories, os.ReadDir, os.Stat)
+func handleSessionListCommand(roots []string, tmuxHandler TmuxHandler, zoxideHandler ZoxideHandler) {
+	dirs, err := gitdirs.ProjectDirs(roots, os.ReadDir, os.Stat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading directory: %v\n", err)
 		os.Exit(1)
@@ -164,24 +161,25 @@ func handleSessionListCommand(config Config, tmuxHandler TmuxHandler, zoxideHand
 }
 
 func main() {
-	config := Config{
-		projectDirectories: []string{os.Getenv("HOME") + "/Documents/repos"},
-	}
-
 	flag.Parse()
-	// sesh list -t --icons
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error loading config: %v\n", err)
+		os.Exit(1)
+	}
 
 	command := flag.Arg(0)
 	switch command {
 	case "list":
 		tmuxHandler := tmux.New()
 		zoxideHandler := zoxide.New()
-		handleSessionListCommand(config, tmuxHandler, zoxideHandler)
+		handleSessionListCommand(cfg.ProjectDirectories, tmuxHandler, zoxideHandler)
 	case "connect":
 		tmuxHandler := tmux.New()
-		handleConnectCommand(flag.Arg(1), config, tmuxHandler)
+		handleConnectCommand(flag.Arg(1), cfg.ProjectDirectories, tmuxHandler)
 	case "preview":
 		tmuxHandler := tmux.New()
-		handlePreviewCommand(flag.Arg(1), config, tmuxHandler)
+		handlePreviewCommand(flag.Arg(1), cfg.ProjectDirectories, tmuxHandler)
 	}
 }
