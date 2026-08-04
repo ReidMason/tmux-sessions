@@ -5,7 +5,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// tmux rejects session names containing "." or ":" since it uses them to
+// delimit window/pane targets, so they're replaced before use as a name.
+var sanitizeSessionName = strings.NewReplacer(".", "_", ":", "_").Replace
 
 type ReadDirFunc func(name string) ([]fs.DirEntry, error)
 type StatDirFunc func(name string) (os.FileInfo, error)
@@ -59,7 +64,7 @@ func Dirs(root string, readDir ReadDirFunc, statDir StatDirFunc, depth int) (map
 	dirs := make(map[string]string)
 	for dir := range gitDirs {
 		name, _ := filepath.Rel(root, dir)
-		dirs[name] = dir
+		dirs[sanitizeSessionName(name)] = dir
 	}
 
 	return dirs, err
