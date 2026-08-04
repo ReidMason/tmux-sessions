@@ -31,11 +31,11 @@ func (t Tmux) GetSessions() map[string]struct{} {
 }
 
 func (t Tmux) SessionExists(sessionName string) bool {
-	return exec.Command("tmux", "has-session", "-t", sessionName).Run() == nil
+	return exec.Command("tmux", "has-session", "-t", sessionTarget(sessionName)).Run() == nil
 }
 
 func (t Tmux) CapturePane(sessionName string) (string, error) {
-	out, err := exec.Command("tmux", "capture-pane", "-t", sessionName, "-p").Output()
+	out, err := exec.Command("tmux", "capture-pane", "-t", sessionTarget(sessionName), "-p").Output()
 	if err != nil {
 		return "", err
 	}
@@ -85,13 +85,19 @@ func createAndSwitchToNewSession(sessionName, sessionPath string) error {
 }
 
 func switchToExistingSession(sessionName string) error {
-	return exec.Command("tmux", "switch-client", "-t", sessionName).Run()
+	return exec.Command("tmux", "switch-client", "-t", sessionTarget(sessionName)).Run()
 }
 
 func attachToExistingSession(sessionName string) {
-	cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
+	cmd := exec.Command("tmux", "attach-session", "-t", sessionTarget(sessionName))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Run()
+}
+
+// sessionTarget forces an exact-match target so session names containing
+// tmux's special "." (window) or ":" (window) separators are treated literally.
+func sessionTarget(sessionName string) string {
+	return "=" + sessionName
 }
